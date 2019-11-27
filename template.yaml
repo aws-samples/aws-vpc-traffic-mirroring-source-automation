@@ -1,0 +1,254 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: "VPC Traffic Mirroring Serverless App to automate VPC/Subnet/Tags as a traffic mirroring source. 
+              The application can perform 3 tasks based on input parameters - set up mirroring on existing instances,
+              new instance launches and based on GuardDuty findings"
+Parameters:
+  EnableForExistingInstances:
+    Type: String
+    Default: true
+    AllowedValues: 
+      - true
+      - false
+    Description: Choose whether to enable traffic mirroring for existing instances.
+  EnableForInstanceLaunch:
+    Type: String
+    Default: true
+    AllowedValues: 
+      - true
+      - false
+    Description: Chose whether to enable traffic mirroring for new instance launches.
+  EnableForGuardDuty:
+    Type: String
+    Default: false
+    AllowedValues: 
+      - true
+      - false
+    Description: Chose whether to enable traffic mirroring for GuardDuty Findings.
+
+Conditions:
+  EnableBackfillExistingInstances:
+    Fn::Equals:
+    - Ref: EnableForExistingInstances
+    - 'true'
+  EnableInstanceLaunchEvents:
+    Fn::Equals:
+    - Ref: EnableForInstanceLaunch
+    - 'true'
+  EnableGuardDutyFindingEvents:
+    Fn::Equals:
+    - Ref: EnableForGuardDuty
+    - 'true'
+  EnableCloudWatchEvents: 
+    Fn::Or: 
+    - Condition: EnableInstanceLaunchEvents
+    - Condition: EnableGuardDutyFindingEvents
+
+Resources:
+  InstanceLaunchEventRule:
+    Condition: EnableInstanceLaunchEvents
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "Instance launch EventRule"
+      EventPattern:
+        source:
+          - "aws.ec2"
+        detail-type:
+          - "EC2 Instance State-change Notification"
+        detail:
+          state:
+            - "running"
+      State: "ENABLED"
+      Targets:
+        -
+          Arn:
+            Fn::GetAtt:
+              - "CloudWatchEventsHandlerLambdaFunction"
+              - "Arn"
+          Id: "CloudWatchEventsHandlerLambdaFunction"
+
+  GuardDutyEventRule:
+    Condition: EnableGuardDutyFindingEvents
+    Type: AWS::Events::Rule
+    Properties:
+      Description: "GuardDuty Findings EventRule"
+      EventPattern:
+        source:
+          - "aws.guardduty"
+        detail-type:
+          - "GuardDuty Finding"
+      State: "ENABLED"
+      Targets:
+        -
+          Arn:
+            Fn::GetAtt:
+              - "CloudWatchEventsHandlerLambdaFunction"
+              - "Arn"
+          Id: "CloudWatchEventsHandlerLambdaFunction"
+
+  InstanceLaunchLambaInvocationPermission:
+    Condition: EnableInstanceLaunchEvents
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: "CloudWatchEventsHandlerLambdaFunction"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn:
+        Fn::GetAtt:
+          - "InstanceLaunchEventRule"
+          - "Arn"
+
+  GuardDutyLambaInvocationPermission:
+    Condition: EnableGuardDutyFindingEvents
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: "CloudWatchEventsHandlerLambdaFunction"
+      Action: "lambda:InvokeFunction"
+      Principal: "events.amazonaws.com"
+      SourceArn:
+        Fn::GetAtt:
+          - "GuardDutyEventRule"
+          - "Arn"
+
+  CloudWatchEventsHandlerLambdaFunction:
+    Condition: EnableCloudWatchEvents
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: traffic_mirroring/
+      Handler: cloudwatch_event_handler.lambda_handler
+      Runtime: python3.7
+      Timeout: 300
+      Role:
+        Fn::GetAtt: [CloudWatchEventsHandlerLambdaExecutionRole, Arn]
+  
+  CloudWatchEventsHandlerLambdaExecutionRole:
+    Condition: EnableCloudWatchEvents
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: ['sts:AssumeRole']
+          Effect: Allow
+          Principal:
+            Service: [lambda.amazonaws.com]
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action: ['cloudwatch:*', 'logs:*']
+            Effect: Allow
+            Resource: '*'
+          - Action: ['ec2:CreateTrafficMirrorTarget', 'ec2:DescribeTrafficMirrorTargets', 'ec2:CreateTrafficMirrorSession']
+            Effect: Allow
+            Resource: '*'
+          - Action: ['ec2:CreateTags', 'ec2:DeleteTags', 'ec2:RunInstances', 'ec2:DescribeInstances', 'ec2:TerminateInstances']
+            Effect: Allow
+            Resource: '*'
+          Version: '2012-10-17'
+        PolicyName: CloudWatchEventsHandlerLambdaExecutionPolicy
+
+  TrafficMirroringBackfillLambdaFunction:
+    Condition: EnableBackfillExistingInstances
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: traffic_mirroring/
+      Handler: backfill_handler.lambda_handler
+      Runtime: python3.7
+      Timeout: 900
+      Role:
+        Fn::GetAtt: [TrafficMirroringBackfillLambdaExecutionRole, Arn]
+  
+  TrafficMirroringBackfillLambdaExecutionRole:
+    Condition: EnableBackfillExistingInstances
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: ['sts:AssumeRole']
+          Effect: Allow
+          Principal:
+            Service: [lambda.amazonaws.com]
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action: ['cloudwatch:*', 'logs:*']
+            Effect: Allow
+            Resource: '*'
+          - Action: ['ec2:CreateTrafficMirrorTarget', 'ec2:DescribeTrafficMirrorTargets', 'ec2:CreateTrafficMirrorSession']
+            Effect: Allow
+            Resource: '*'
+          - Action: ['ec2:CreateTags', 'ec2:DeleteTags', 'ec2:RunInstances', 'ec2:DescribeInstances', 'ec2:TerminateInstances']
+            Effect: Allow
+            Resource: '*'
+          - Action: ['SNS:Publish']
+            Effect: Allow
+            Resource: '*'
+          Version: '2012-10-17'
+        PolicyName: TrafficMirroringBackfillLambdaExecutionPolicy
+
+  SNSLambdaInvocationPermission:
+    Condition: EnableBackfillExistingInstances
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Ref: "TrafficMirroringBackfillLambdaFunction"
+      Action: "lambda:InvokeFunction"
+      Principal: "sns.amazonaws.com"
+      SourceArn: 
+        Ref: "TrafficMirroringBackfillSNSTopic"
+  
+  TrafficMirroringBackfillSNSTopic:
+    Condition: EnableBackfillExistingInstances
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+        - Endpoint:
+            Fn::GetAtt:
+              - "TrafficMirroringBackfillLambdaFunction"
+              - "Arn"
+          Protocol: "lambda"
+
+  BackfillInitiatorLambdaFunction:
+    Condition: EnableBackfillExistingInstances
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: traffic_mirroring/
+      Handler: backfill_initiator_handler.lambda_handler
+      Runtime: python3.7
+      Timeout: 60
+      Role:
+        Fn::GetAtt: [BackfillInitiatorLambdaExecutionRole, Arn]
+  
+  # Lambda Execution Role
+  BackfillInitiatorLambdaExecutionRole:
+    Condition: EnableBackfillExistingInstances
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+        - Action: ['sts:AssumeRole']
+          Effect: Allow
+          Principal:
+            Service: [lambda.amazonaws.com]
+        Version: '2012-10-17'
+      Policies:
+      - PolicyDocument:
+          Statement:
+          - Action: ['cloudwatch:*', 'logs:*']
+            Effect: Allow
+            Resource: '*'
+          - Action: ['SNS:Publish']
+            Effect: Allow
+            Resource: '*'
+          Version: '2012-10-17'
+        PolicyName: BackfillInitiatorLambdaExecutionPolicy
+
+  BackfillTriggerCustomResource:
+    Condition: EnableBackfillExistingInstances
+    Type: Custom::AppConfiguration
+    Properties:
+      ServiceToken: !GetAtt BackfillInitiatorLambdaFunction.Arn
+      SNSTopicArn: {Ref: TrafficMirroringBackfillSNSTopic}

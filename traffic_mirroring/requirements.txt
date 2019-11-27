@@ -1,0 +1,4 @@
+boto3==1.9.231
+botocore==1.12.231
+pyyaml==3.13
+crhelper
