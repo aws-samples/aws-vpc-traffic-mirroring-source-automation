@@ -118,7 +118,7 @@ vpcs:
 
 * Before building the application all the necessary runtime dependencies must be installed in your run time environment.
     * Python 3.7
-    * Dependencies listed in [requirements.txt](https://github.com/aws-samples/amazon-vpc-traffic-mirroring-source-automation/blob/master/requirements.txt)
+    * Dependencies listed in [requirements.txt](https://github.com/aws-samples/amazon-vpc-traffic-mirroring-source-automation/blob/master/traffic_mirroring/requirements.txt)
 
 * After installing, the application can be built using the [build commands](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-using-build.html) in SAM CLI
 
