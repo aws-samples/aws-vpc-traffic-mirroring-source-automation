@@ -16,17 +16,17 @@ The current traffic mirroring offering provides support to mirror network traffi
 1. Setting up traffic mirroring on newly launched EC2 instances
 1. Setting up traffic mirroring on EC2 instances which trigger a GuardDuty event
 
-Each of these can be configured independently or in combinations using [parameter-overrides](https://docs.aws.amazon.com/cli/latest/reference/cloudformation/deploy/index.html) while deploying the CloudFormation stack using [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-getting-started.html). Based on the parameters provided during deployment, CloudFormation spins up the following infrastructure to run the application - 
+Each of these can be configured independently or in combinations using [parameter-overrides](https://docs.aws.amazon.com/cli/latest/reference/cloudformation/deploy/index.html) while deploying the CloudFormation stack using [AWS SAM CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-getting-started.html). Based on the parameters provided during deployment, CloudFormation spins up the following infrastructure to run the application -
 
 !["VPC Traffic Mirroring Source Automation Application"](images/tm_source_automation.png)
 
-The infrastructure consists of 3 different lambda functions: 
+The infrastructure consists of 3 different lambda functions:
 
 1. **BackfillInitiatorLambdaFunction**: This Lambda function and its associated resources are created to support the use-case for automating backfilling of existing EC2 instances based on user-defined configuration. This function is invoked at the time of stack creation with the help of a custom CFN resource and sends a SNS message to **TrafficMirroringBackfillLambdaFunction** Lambda function to initiate the backfill.
 1. **TrafficMirroringBackfillLambdaFunction**: This Lambda function is responsible for describing EC2 instances in the account and matching the attributes of the EC2 instances to the user-defined configuration. If it finds a match between the VPCs, subnets or tags as provided by the user, it proceeds to set up traffic mirroring. Since a user can have 1000s of EC2 instances in their account and Lambda is limited by a specific execution timeout, this function describes a page of 200 instances at a time and then send a SNS message with the next token of the describe-instances call. This SNS message is consumed by another invocation of the same Lambda function and it continues backfilling until it has processed all the existing EC2 instances in the account.
 1. **CloudWatchEventHandlerLambdaFunction**: This Lambda function is responsible for listening to [CloudWatch Events](https://docs.aws.amazon.com/AmazonCloudWatch/latest/events/WhatIsCloudWatchEvents.html) for either [GuardDuty Findings](https://docs.aws.amazon.com/guardduty/latest/ug/guardduty_findings.html) or [EC2 Instance Launch Events](https://docs.aws.amazon.com/AmazonCloudWatch/latest/events/EventTypes.html#ec2_event_type). It gets the attributes of the EC2 instances based on the events and then sets up traffic mirroring based on a match with the user-defined configuration
 
-The general workflow of the application after it gets the attributes of an EC2 instance(existing or new instances) to setup traffic mirroring is as follows - 
+The general workflow of the application after it gets the attributes of an EC2 instance(existing or new instances) to setup traffic mirroring is as follows -
 
 1. The Lambda function loads the user-defined configuration to determine if the instance involved in the event should be configured with traffic mirroring
 1. The function then configures the primary ENI of the instance as a traffic mirror source
@@ -44,7 +44,7 @@ Please refer to [CloudFormation Template](https://github.com/aws-samples/amazon-
 
 The application is based on AWS SAM framework. AWS SAM CLI needs to be installed to build and deploy the application with the user-defined custom configuration. The installation instructions for SAM CLI can be found [here.](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-install.html)
 
-##### USER-DEFINED CONFIGURATION 
+##### USER-DEFINED CONFIGURATION
 
 The application ***requires*** a regional configuration file to specify the VPCs, subnets, and/or tags it is supposed to track along with configuration required to setup traffic mirroring. The configuration file is defined in the **config directory** and follows a naming convention of ***<REGION_NAME>.yaml*** e.g. *us-east-1.yaml*
 
@@ -79,7 +79,7 @@ subnets:
 - subnetId: subnet-1a2b3c4d
   filterId: tmf-1a2b3c4d5e6f7g8h
   targetId: tmt-1a2b3c4d5e6f7g8h
-  
+
 vpcs:
 - vpcId: vpc-1a2b3c4d
   filterId: tmf-1a2b3c4d5e6f7g8h
@@ -109,7 +109,7 @@ vpcs:
 ------
 **NOTE**
 * At least one of the configuration i.e. tags/subnet/vpcs need to be defined for the application to work
-* You can chose to either specify an existing Traffic Mirror target(**targetId**) or you must provide properties(**targetInstanceType, targetInstanceAmi, targetSecurityGroupIds, targetSubnetId**) for creation of EC2 instances to host Traffic Mirror targets. 
+* You can chose to either specify an existing Traffic Mirror target(**targetId**) or you must provide properties(**targetInstanceType, targetInstanceAmi, targetSecurityGroupIds, targetSubnetId**) for creation of EC2 instances to host Traffic Mirror targets.
 * The field **targetSubnetId is optional** and if undefined would create the traffic mirroring target in the same subnet as the source instance.
 * There is a priority order associated with each of the configuration type. **Tagging configuration** gets evaluated before **subnet configuration** which gets evaluated before **VPC configuration**.
 ------
@@ -136,7 +136,7 @@ vpcs:
 e.g  *Deploy application to set up traffic mirroring only for existing instances and GuardDuty events*:
 
 ```
-sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableTMExistingInstances=true EnableTMNewInstances=false EnableTMGuardDutyFindings=true
+sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableForExistingInstances=true EnableForInstanceLaunch=false EnableForGuardDuty=true
 ```
 ------
 
@@ -144,7 +144,7 @@ sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAP
 
 * The application generates [CloudWatch Logs](https://docs.aws.amazon.com/lambda/latest/dg/monitoring-functions-logs.html) which can be useful while debugging issues
 * The user can also setup [CloudWatch Alarms](https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/AlarmThatSendsEmail.html) on [Lambda emitted metrics](https://docs.aws.amazon.com/lambda/latest/dg/monitoring-functions-metrics.html) to notify themselves of issues while running the app
-* [CloudWatch Metric Filters](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/MonitoringLogData.html) can be used to generate specific metrics if needed. 
+* [CloudWatch Metric Filters](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/MonitoringLogData.html) can be used to generate specific metrics if needed.
 -------
 
 ### Limitations
@@ -154,7 +154,7 @@ sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAP
 --------
 ### Example Scenarios
 
-##### Scenario I 
+##### Scenario I
 
 Set up traffic mirroring on existing instances as well any new instance launches with tag: *{Key=MyKey, Value=MyValue}* in us-east-1. Set up traffic mirroring with my already created NLB based target
 
@@ -170,7 +170,7 @@ tags:
 ```
 *Deployment command:*
 ```
-sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableTMExistingInstances=true EnableTMNewInstances=true EnableTMGuardDutyFindings=false
+sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableForExistingInstances=true EnableForInstanceLaunch=true EnableForGuardDuty=false
 ```
 ##### Scenario II
 Set up traffic mirroring on any instance reported by a GuardDuty finding which belongs to either vpc-1a2b3c4d or subnet-1a2b3c4d . Create traffic mirror targets on the fly for the instances matching vpc-1a2b3c4d and use my already created NLB based target for the instances matching subnet-1a2b3c4d. If an instance matches both the subnet-1a2b3c4d and the vpc-1a2b3c4d, the configuration for subnet takes a priority
@@ -181,7 +181,7 @@ subnets:
 - subnetId: subnet-1a2b3c4d
   filterId: tmf-1a2b3c4d5e6f7g8h
   targetId: tmt-1a2b3c4d5e6f7g8h
-  
+
 vpcs:
 - vpcId: vpc-1a2b3c4d
   filterId: tmf-1a2b3c4d5e6f7g8h
@@ -194,7 +194,7 @@ vpcs:
 ```
 *Deployment command:*
 ```
-sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableTMExistingInstances=false EnableTMNewInstances=false EnableTMGuardDutyFindings=true
+sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableForExistingInstances=false EnableForInstanceLaunch=false EnableForGuardDuty=true
 ```
 -------
 
