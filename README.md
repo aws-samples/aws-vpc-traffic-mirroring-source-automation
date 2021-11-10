@@ -1,5 +1,6 @@
-# VPC TrafficMirroring Source Automation Application
+# Enterprise Ready VPC TrafficMirroring Source Automation Application
 -----
+
 
 ### Traffic Mirroring
 
@@ -30,11 +31,11 @@ The general workflow of the application after it gets the attributes of an EC2 i
 
 1. The Lambda function loads the user-defined configuration to determine if the instance involved in the event should be configured with traffic mirroring
 1. The function then configures the primary ENI of the instance as a traffic mirror source
-1. The Lambda function uses the Traffic Mirror target defined in the user-defined configuration to set up mirroring.
-1. If a target is not defined, the Lambda function creates and reuses Traffic Mirror targets as needed. If a Traffic Mirror target has reach its source limit, the Lambda function creates a new target.
+1. The Lambda function uses the Traffic Mirror target defined in the user-defined configuration to set up mirroring. The Lambda function uses the Traffic Mirror target for the AZ that the source instance is running in. For example, if the source instance is running in AZ ID xxxx-az1, the Lambda function will use 'targetID-az1'. This customization will help save data transfer cost as the mirrored traffic does not move across AZs.
+1. The Lambda function uses the Traffic Mirror filter defined in the user-defined configuration to set up mirroring. The Lambda function will use a Traffic Mirror filter based on instance tag 'server_type'. The solution expects values 'web', 'app' or 'db' for the instance tag 'server_type'; and based on a specific value of this tag, it selects the Traffic Mirror filter. For example, if the instance tag 'server_type' is set to 'web', the Lambda function will use the Traffic Mirror filter 'filterID-web'.
 1. The function also ensures that traffic mirroring is not enabled on the target instances.
 
-Please refer to [CloudFormation Template](https://github.com/aws-samples/amazon-vpc-traffic-mirroring-source-automation/blob/master/template.yaml) for information about resources and permissions created by CloudFormation.
+Please refer to [CloudFormation Template](https://gitlab.aws.dev/hirenaws/security-aod-artifact) for information about resources and permissions created by CloudFormation.
 
 ------
 
@@ -72,23 +73,32 @@ tags:
     Value: tagValue1
   - Key: tagKey2
     Value: tagValue2
-  filterId: tmf-1a2b3c4d5e6f7g8h
-  targetId: tmt-1a2b3c4d5e6f7g8h
+  filterID-web: tmf-1a1b1c1d1e1f1g1h
+  filterID-app: tmf-2a2b2c2d2e2f2g2h
+  filterID-db:  tmf-3a3b3c3d3e3f3g3h
+  targetID-az1: tmt-1a1b1c1d1e1f1g1h
+  targetID-az2: tmt-2a2b2c2d2e2f2g2h
+  targetID-az3: tmt-3a3b3c3d3e3f3g3h
+
 
 subnets:
 - subnetId: subnet-1a2b3c4d
-  filterId: tmf-1a2b3c4d5e6f7g8h
-  targetId: tmt-1a2b3c4d5e6f7g8h
+  filterID-web: tmf-1a1b1c1d1e1f1g1h
+  filterID-app: tmf-2a2b2c2d2e2f2g2h
+  filterID-db:  tmf-3a3b3c3d3e3f3g3h
+  targetID-az1: tmt-1a1b1c1d1e1f1g1h
+  targetID-az2: tmt-2a2b2c2d2e2f2g2h
+  targetID-az3: tmt-3a3b3c3d3e3f3g3h
 
 vpcs:
 - vpcId: vpc-1a2b3c4d
-  filterId: tmf-1a2b3c4d5e6f7g8h
-  targetInstanceType: t3.micro
-  targetInstanceAmi: ami-1a2b3c4d5e6f7g8h
-  targetSecurityGroupIds:
-  - sg-1a2b3c4d5e6f7g8h
-  - sg-1aaaaaaa2bbbbbbb
-  targetSubnetId: subnet-5e6f7g8h
+  filterID-web: tmf-1a1b1c1d1e1f1g1h
+  filterID-app: tmf-2a2b2c2d2e2f2g2h
+  filterID-db:  tmf-3a3b3c3d3e3f3g3h
+  targetID-az1: tmt-1a1b1c1d1e1f1g1h
+  targetID-az2: tmt-2a2b2c2d2e2f2g2h
+  targetID-az3: tmt-3a3b3c3d3e3f3g3h
+
 ```
 
 **YAML Keys:**
@@ -98,19 +108,13 @@ vpcs:
 * **vpcId** (required for vpcs config): Id for the vpc where instances need to be set up with Traffic Mirroring
 * **subnetId** (required for subnet config): Id for the subnet where instances need to be set up with Traffic Mirroring
 * **tagList** (required for tag config): List of instance tags to be tracked for instances which need to be set up with Traffic Mirroring
-* **filterId** (required): Id for the Traffic Mirror Filter to be used for setting up Traffic Mirror Sessions
-* **targetId** (optional): Id for the Traffic Mirror Target to be used for setting up Traffic Mirror Sessions
-* **targetInstanceType** (optional): Instance type for the launch of EC2 instance whose ENI is used for setting up Traffic Mirror Targets
-* **targetInstanceAmi** (optional):  Instance AMI for the launch of EC2 instance whose ENI is used for setting up Traffic Mirror Targets
-* **targetSecurityGroupIds** (optional): List of security groups for the launch of EC2 instance whose ENI is used for setting up Traffic Mirror Targets
-* **targetSubnetId** (optional): Subnet ID for the launch of EC2 instance whose ENI is used for setting up Traffic Mirror Targets
+* **filterID-web, filterID-app and filterID-db** (required): Id for the Traffic Mirror Filter to be used for setting up Traffic Mirror Sessions
+* **targetID-azx** (required): Id for the Traffic Mirror Target to be used for setting up Traffic Mirror Sessions in a specific AZ ID.
 
 
 ------
 **NOTE**
 * At least one of the configuration i.e. tags/subnet/vpcs need to be defined for the application to work
-* You can chose to either specify an existing Traffic Mirror target(**targetId**) or you must provide properties(**targetInstanceType, targetInstanceAmi, targetSecurityGroupIds, targetSubnetId**) for creation of EC2 instances to host Traffic Mirror targets.
-* The field **targetSubnetId is optional** and if undefined would create the traffic mirroring target in the same subnet as the source instance.
 * There is a priority order associated with each of the configuration type. **Tagging configuration** gets evaluated before **subnet configuration** which gets evaluated before **VPC configuration**.
 ------
 
@@ -136,7 +140,7 @@ vpcs:
 e.g  *Deploy application to set up traffic mirroring only for existing instances and GuardDuty events*:
 
 ```
-sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableForExistingInstances=true EnableForInstanceLaunch=false EnableForGuardDuty=true
+sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableTMExistingInstances=true EnableTMNewInstances=false EnableTMGuardDutyFindings=true
 ```
 ------
 
@@ -156,7 +160,7 @@ sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAP
 
 ##### Scenario I
 
-Set up traffic mirroring on existing instances as well any new instance launches with tag: *{Key=MyKey, Value=MyValue}* in us-east-1. Set up traffic mirroring with my already created NLB based target
+Set up traffic mirroring on existing instances as well any new instance launches with tag: *{Key=MyKey, Value=MyValue}* in us-east-1. Set up traffic mirroring with my already created NLB based targets in 3 AZs (AZ ID 1, 2 and 3).
 
 *Configuration file: us-east-1.yaml*
 ```
@@ -165,36 +169,43 @@ tags:
 - tagList:
   - Key: MyKey
     Value: MyValue
-  filterId: tmf-1a2b3c4d5e6f7g8h
-  targetId: tmt-1a2b3c4d5e6f7g8h
+  filterID-web: tmf-1a1b1c1d1e1f1g1h
+  filterID-app: tmf-2a2b2c2d2e2f2g2h
+  filterID-db:  tmf-3a3b3c3d3e3f3g3h
+  targetID-az1: tmt-1a1b1c1d1e1f1g1h
+  targetID-az2: tmt-2a2b2c2d2e2f2g2h
+  targetID-az3: tmt-3a3b3c3d3e3f3g3h
 ```
 *Deployment command:*
 ```
-sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableForExistingInstances=true EnableForInstanceLaunch=true EnableForGuardDuty=false
+sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableTMExistingInstances=true EnableTMNewInstances=true EnableTMGuardDutyFindings=false
 ```
 ##### Scenario II
-Set up traffic mirroring on any instance reported by a GuardDuty finding which belongs to either vpc-1a2b3c4d or subnet-1a2b3c4d . Create traffic mirror targets on the fly for the instances matching vpc-1a2b3c4d and use my already created NLB based target for the instances matching subnet-1a2b3c4d. If an instance matches both the subnet-1a2b3c4d and the vpc-1a2b3c4d, the configuration for subnet takes a priority
+Set up traffic mirroring on any instance reported by a GuardDuty finding which belongs to either vpc-1a2b3c4d or subnet-1a2b3c4d . Use my already created NLB based target for the instances. If an instance matches both the subnet-1a2b3c4d and the vpc-1a2b3c4d, the configuration for subnet takes a priority
 
 *Configuration file: us-east-1.yaml*
 ```
 subnets:
 - subnetId: subnet-1a2b3c4d
-  filterId: tmf-1a2b3c4d5e6f7g8h
-  targetId: tmt-1a2b3c4d5e6f7g8h
+  filterID-web: tmf-1a1b1c1d1e1f1g1h
+  filterID-app: tmf-2a2b2c2d2e2f2g2h
+  filterID-db:  tmf-3a3b3c3d3e3f3g3h
+  targetID-az1: tmt-1a1b1c1d1e1f1g1h
+  targetID-az2: tmt-2a2b2c2d2e2f2g2h
+  targetID-az3: tmt-3a3b3c3d3e3f3g3h
 
 vpcs:
 - vpcId: vpc-1a2b3c4d
-  filterId: tmf-1a2b3c4d5e6f7g8h
-  targetInstanceType: t3.micro
-  targetInstanceAmi: ami-1a2b3c4d5e6f7g8h
-  targetSecurityGroupIds:
-  - sg-1a2b3c4d5e6f7g8h
-  - sg-1aaaaaaa2bbbbbbb
-  targetSubnetId: subnet-5e6f7g8h
+  filterID-web: tmf-1a1b1c1d1e1f1g1h
+  filterID-app: tmf-2a2b2c2d2e2f2g2h
+  filterID-db:  tmf-3a3b3c3d3e3f3g3h
+  targetID-az1: tmt-1a1b1c1d1e1f1g1h
+  targetID-az2: tmt-2a2b2c2d2e2f2g2h
+  targetID-az3: tmt-3a3b3c3d3e3f3g3h
 ```
 *Deployment command:*
 ```
-sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableForExistingInstances=false EnableForInstanceLaunch=false EnableForGuardDuty=true
+sam deploy --template-file packaged.yaml --region REGION_NAME --capabilities CAPABILITY_IAM --stack-name STACK_NAME --parameter-overrides EnableTMExistingInstances=false EnableTMNewInstances=false EnableTMGuardDutyFindings=true
 ```
 -------
 

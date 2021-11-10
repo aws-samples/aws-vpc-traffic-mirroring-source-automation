@@ -1,3 +1,11 @@
+# This sample, non-production-ready code allows the user to automate setting up of traffic mirroring based on VPCs, subnets, and tags as input.    
+# © 2021 Amazon Web Services, Inc. or its affiliates. All Rights Reserved.  
+# This AWS Content is provided subject to the terms of the AWS Customer Agreement available at  
+# http://aws.amazon.com/agreement or other written agreement between Customer and either
+# Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
+#
+# This is a customized solution based on original AWS solution at https://github.com/aws-samples/aws-vpc-traffic-mirroring-source-automation
+
 import boto3
 import botocore
 import logging
@@ -59,21 +67,28 @@ def parse_sns_message(event):
         log.info("Finished backfilling existing instances.")
         return []
 
+# customized to also retrieve instance AZ ID 
+
     instance_list = []
-    for instance in response["Reservations"]:
-        instance_details = instance["Instances"][0]
-        instance = create_instance_object(instance_details)
-        instance_list.append(instance)
+    for reservation in response["Reservations"]:
+        for inst in reservation["Instances"]:
+            instance_details = inst
+            subnet_id = instance_details["SubnetId"]
+            subnet_response = ec2.describe_subnets(SubnetIds=[subnet_id])
+
+            instance = create_instance_object(instance_details,subnet_response)
+            instance_list.append(instance)
 
     update_sns_config(event, response)
 
     return instance_list
 
 def describe_instances(next_token):
+# customized to check for instances that are in 'running' state 
     if not next_token or next_token == START_BACKFILL_TOKEN:
-        return ec2.describe_instances(MaxResults=MAX_RESULTS)
+        return ec2.describe_instances(Filters=[{'Name': 'instance-state-name','Values': ['running']}],MaxResults=MAX_RESULTS)
 
-    return ec2.describe_instances(MaxResults=MAX_RESULTS, NextToken=next_token)
+    return ec2.describe_instances(Filters=[{'Name': 'instance-state-name','Values': ['running']}],MaxResults=MAX_RESULTS, NextToken=next_token)
 
 def update_sns_config(event, describe_instances_response):
     global SNS_CONFIG
