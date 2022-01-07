@@ -3,9 +3,6 @@
 # This AWS Content is provided subject to the terms of the AWS Customer Agreement available at  
 # http://aws.amazon.com/agreement or other written agreement between Customer and either
 # Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
-#
-# This is a customized solution based on original AWS solution at https://github.com/aws-samples/aws-vpc-traffic-mirroring-source-automation
-# 
 
 import logging
 import os
@@ -21,7 +18,8 @@ CONFIG_FILE = "config/" + os.environ['AWS_REGION'] + ".yaml"
 SUBNET_TAG_KEY = "TargetSubnetId"
 START_BACKFILL_TOKEN = "StartToken"
 SESSION_NUMBER = 100
-FILTER_TAG_KEY = "server_type" # Instance tag 'server_type' is required; acceptable values are 'web', 'app' and 'db'
+FILTER_TAG_KEY = "server_type" # Instance tag 'server_type' is required
+FILTER_TAG_ACCEPTABLE_VALUES = ['web','app','db'] # acceptable values are 'web', 'app' and 'db'
 
 @dataclass
 class Instance:
@@ -114,7 +112,7 @@ def publish_message(sns_client, sns_topic_arn, next_token):
     sns_client.publish(TopicArn=sns_topic_arn,
                        Message="Backfill existing instances", MessageAttributes=message_attribute)
 
-def create_instance_object(instance_details,subnet_details):
+def create_instance_object(instance_details, subnet_details):
     subnet_id = instance_details["SubnetId"]
     vpc_id = instance_details["VpcId"]
     # Extracting only primary interface
@@ -183,8 +181,8 @@ def create_session(ec2, instance, config):
     target_id = get_target(instance, config)
     filter_id = get_filter(instance, config)
     network_interface_id = instance.network_interface_id
-    if target_id == 'invalid_target_id' or filter_id == 'invalid_filter_id':
-        log.error("Invalid TargetID or filterID found in config. Please review config yaml file.")
+    if target_id is None or filter_id is None:
+        log.error("Traffic mirroring session could not be created.")
     else:
         log.info("Creating a session with source: %s, target: %s, filter: %s", 
                 network_interface_id, target_id, filter_id)
@@ -205,8 +203,7 @@ def create_traffic_mirror_session(ec2, network_interface_id, target_id, filter_i
                                              TrafficMirrorFilterId=filter_id,
                                              SessionNumber=SESSION_NUMBER)
 
-# Gets a valid target to use in a session. If a targetId was specified in the config
-# it will be used. If not, it will error out with details in the logfile.
+# Gets a valid target to use in a session. 
 def get_target(instance, config):
     # customized to retrieve targetID from input config file based on AZ ID of the instance
     azid = instance.az_id
@@ -214,8 +211,8 @@ def get_target(instance, config):
     target_name ='targetID-' + aznum
 
     if field_missing(target_name, config):
-        log.error("TargetID %s not found in config. Please review config yaml file and update targetID.", target_name)
-        return "invalid_target_id"
+        log.error("TargetID %s is missing. Please add it in config yaml file.",target_name)
+        return None
     else:
         targetId = config[target_name]
         log.info('Using provided target: %s', targetId)
@@ -224,21 +221,21 @@ def get_target(instance, config):
 def get_filter(instance, config):
     for tag in instance.tags:
         if tag['Key'] == FILTER_TAG_KEY:
-            if tag['Value'] in ('web','app','db'):
+            if tag['Value'] in FILTER_TAG_ACCEPTABLE_VALUES:
                 filter_name = 'filterID-' + tag['Value']
                 if field_missing(filter_name, config):
-                    log.error("FilterID %s not found in config. Please review config yaml file and update approproate filterID.",filter_name)
-                    return "invalid_filter_id"
+                    log.error("FilterID %s is missing. Please add it in config yaml file.",filter_name)
+                    return None
                 else:
                     filterId = config[filter_name]
                     log.info('Using provided filter: %s', filterId)
                     return filterId
             else:
-                log.error("Value for instance tag %s is invalid. Acceptable values are 'web', 'app' and 'db'.",FILTER_TAG_KEY)
-                return "invalid_filter_id"
+                log.error("Value for instance tag %s is invalid. Acceptable values are %s",FILTER_TAG_KEY,FILTER_TAG_ACCEPTABLE_VALUES)
+                return None
 
     log.error("Tag %s is missing. Please add instance tag %s.",FILTER_TAG_KEY,FILTER_TAG_KEY)
-    return "invalid_filter_id"
+    return None
 
 def get_target_subnet_id(instance, config):
     return config["targetSubnetId"] if not field_missing('targetSubnetId', config) else instance.subnet_id

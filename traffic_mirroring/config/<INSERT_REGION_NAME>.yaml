@@ -5,38 +5,43 @@
 # VPC related configuration. You can enter configuration related to multiple VPCs here
 vpcs:
 - vpcId: <INSERT_VALUE> # required e.g. vpc-1a2b3c4d
-  filterId: <INSERT_VALUE> # required e.g. tmf-06d57ab5b80cc5dc7
-
-  # Set this property to use an existing Traffic Mirror target for all sessions. If using this option
+  
+  # Use this property to use an existing Traffic Mirror filter based on traffic source instance tag.
+  # This solution uses instance tag key value of "server_type" with allowed values of 'web', 'app' and 'db'. 
+  # If you prefer to use other values for instance tag key/value, you would need to update this paramter accordingly.
+  filterID-web: <INSERT_VALUE> # required e.g. tmf-035ba57dba06a5467
+  filterID-app: <INSERT_VALUE> # required e.g. tmf-019e92beff0755e82
+  filterID-db:  <INSERT_VALUE> # required e.g. tmf-038f1b7853bf5006f
+  
+  # Set this property to use an existing Traffic Mirror target for all sessions in a given AZ. If using this option
   # we recommend using a target of type 'network-load-balancer' because a network-load-balancer based target
-  # does not have any limits on the number of sources that mirror to it. If you do not set this property then
-  # you must define the target instance properties below
-  targetId: <INSERT_VALUE> # e.g. tmt-06d57ab5b80cc5dc7
+  # does not have any limits on the number of sources that mirror to it. 
+  # Update the parameter based on AZ ID of the target.
+  targetID-az1: <INSERT_VALUE> # Use this paramter for target in AZ ID 1, e.g. tmt-0d1eb1fc980833f4e
+  targetID-az2: <INSERT_VALUE> # Use this paramter for target in AZ ID 2, e.g. tmt-0102eacfa984f3dc2
+  targetID-az3: <INSERT_VALUE> # Use this paramter for target in AZ ID 3, e.g. tmt-055b63b6900cba6ca
 
-  # Set these properties to have the app create Traffic Mirror targets on-demand by launching EC2 instances
-  # with the following configurations. If 'targetId' is defined than these properties are ignored. If 'targetId' is
-  # not defined than these properties are required
-  targetInstanceType: <INSERT_VALUE> # e.g. c5.xlarge
-  targetInstanceAmi: <INSERT_VALUE> # e.g. ami-04b762b4289fba92b
-  targetSecurityGroupIds: 
-  - <INSERT_VALUE> # e.g. sg-09b8aa62ffe25a174
-  - <INSERT_VALUE> # e.g. sg-09b8aa62ffe25a174
-  targetSubnetId: <INSERT_VALUE> # e.g. subnet-123456 # If not specified a target in the same subnet as source would be created/used
 
 # Subnet related configuration. You can enter configuration related to multiple subnets here
 # NOTE: A subnet configuration takes priority over VPC configuration
 subnets:
 - subnetId: <INSERT_VALUE> # required e.g. subnet-ecf5d8b6
 
-  targetId: <INSERT_VALUE>
+  # Use this property to use an existing Traffic Mirror filter based on traffic source instance tag.
+  # This solution uses instance tag key value of "server_type" with allowed values of 'web', 'app' and 'db'. 
+  # If you prefer to use other values for instance tag key/value, you would need to update this paramter accordingly.
+  filterID-web: <INSERT_VALUE> # required e.g. tmf-035ba57dba06a5467
+  filterID-app: <INSERT_VALUE> # required e.g. tmf-019e92beff0755e82
+  filterID-db:  <INSERT_VALUE> # required e.g. tmf-038f1b7853bf5006f
   
-  targetInstanceType: <INSERT_VALUE>
-  targetInstanceAmi: <INSERT_VALUE>
-  targetSecurityGroupIds:
-  - <INSERT_VALUE>
-  - <INSERT_VALUE>
-  filterId: <INSERT_VALUE>
-  targetSubnetId: <INSERT_VALUE>
+  # Set this property to use an existing Traffic Mirror target for all sessions in a given AZ. If using this option
+  # we recommend using a target of type 'network-load-balancer' because a network-load-balancer based target
+  # does not have any limits on the number of sources that mirror to it. 
+  # Update the parameter based on AZ ID of the target.
+  targetID-az1: <INSERT_VALUE> # Use this paramter for target in AZ ID 1, e.g. tmt-0d1eb1fc980833f4e
+  targetID-az2: <INSERT_VALUE> # Use this paramter for target in AZ ID 2, e.g. tmt-0102eacfa984f3dc2
+  targetID-az3: <INSERT_VALUE> # Use this paramter for target in AZ ID 3, e.g. tmt-055b63b6900cba6ca
+  
 
 # Tags related configuration. You can enter configuration related to multiple tags here
 # NOTE: A tag configuration takes priority over subnet configuration. Also, this works only for tags created during instance launch
@@ -48,12 +53,17 @@ tags:
   - Key: <INSERT_VALUE>
     Value: <INSERT_VALUE>
 
-  targetId: <INSERT_VALUE>
-
-  targetInstanceType: <INSERT_VALUE>
-  targetInstanceAmi: <INSERT_VALUE>
-  targetSecurityGroupIds:
-  - <INSERT_VALUE>
-  - <INSERT_VALUE>
-  filterId: <INSERT_VALUE>
-  targetSubnetId: <INSERT_VALUE>
+  # Use this property to use an existing Traffic Mirror filter based on traffic source instance tag.
+  # This solution uses instance tag key value of "server_type" with allowed values of 'web', 'app' and 'db'. 
+  # If you prefer to use other values for instance tag key/value, you would need to update this paramter accordingly.
+  filterID-web: <INSERT_VALUE> # required e.g. tmf-035ba57dba06a5467
+  filterID-app: <INSERT_VALUE> # required e.g. tmf-019e92beff0755e82
+  filterID-db:  <INSERT_VALUE> # required e.g. tmf-038f1b7853bf5006f
+  
+  # Set this property to use an existing Traffic Mirror target for all sessions in a given AZ. If using this option
+  # we recommend using a target of type 'network-load-balancer' because a network-load-balancer based target
+  # does not have any limits on the number of sources that mirror to it. 
+  # Update the parameter based on AZ ID of the target.
+  targetID-az1: <INSERT_VALUE> # Use this paramter for target in AZ ID 1, e.g. tmt-0d1eb1fc980833f4e
+  targetID-az2: <INSERT_VALUE> # Use this paramter for target in AZ ID 2, e.g. tmt-0102eacfa984f3dc2
+  targetID-az3: <INSERT_VALUE> # Use this paramter for target in AZ ID 3, e.g. tmt-055b63b6900cba6ca

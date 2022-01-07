@@ -3,8 +3,6 @@
 # This AWS Content is provided subject to the terms of the AWS Customer Agreement available at  
 # http://aws.amazon.com/agreement or other written agreement between Customer and either
 # Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
-#
-# This is a customized solution based on original AWS solution at https://github.com/aws-samples/aws-vpc-traffic-mirroring-source-automation
 
 import boto3
 import botocore
@@ -56,7 +54,7 @@ def parse_instance_launch_event(event):
     subnet_id = response["SubnetId"]
     subnet_response = ec2.describe_subnets(SubnetIds=[subnet_id])
 
-    return create_instance_object(response,subnet_response)
+    return create_instance_object(response, subnet_response)
 
 # Parse a custom "Instance" from a GaurdDuty Finding event
 def parse_guardduty_event(event):

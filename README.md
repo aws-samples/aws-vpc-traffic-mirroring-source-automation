@@ -35,7 +35,7 @@ The general workflow of the application after it gets the attributes of an EC2 i
 1. The Lambda function uses the Traffic Mirror filter defined in the user-defined configuration to set up mirroring. The Lambda function will use a Traffic Mirror filter based on instance tag 'server_type'. The solution expects values 'web', 'app' or 'db' for the instance tag 'server_type'; and based on a specific value of this tag, it selects the Traffic Mirror filter. For example, if the instance tag 'server_type' is set to 'web', the Lambda function will use the Traffic Mirror filter 'filterID-web'.
 1. The function also ensures that traffic mirroring is not enabled on the target instances.
 
-Please refer to [CloudFormation Template](https://gitlab.aws.dev/hirenaws/security-aod-artifact) for information about resources and permissions created by CloudFormation.
+Please refer to [CloudFormation Template](https://github.com/aws-samples/amazon-vpc-traffic-mirroring-source-automation/blob/master/template.yaml) for information about resources and permissions created by CloudFormation.
 
 ------
 
