@@ -1,5 +1,12 @@
+# This sample, non-production-ready code allows the user to automate setting up of traffic mirroring based on VPCs, subnets, and tags as input.    
+# © 2021 Amazon Web Services, Inc. or its affiliates. All Rights Reserved.  
+# This AWS Content is provided subject to the terms of the AWS Customer Agreement available at  
+# http://aws.amazon.com/agreement or other written agreement between Customer and either
+# Amazon Web Services, Inc. or Amazon Web Services EMEA SARL or both.
+
 import logging
 import os
+import sys
 import yaml
 from botocore.exceptions import ClientError
 from dataclasses import dataclass
@@ -11,12 +18,15 @@ CONFIG_FILE = "config/" + os.environ['AWS_REGION'] + ".yaml"
 SUBNET_TAG_KEY = "TargetSubnetId"
 START_BACKFILL_TOKEN = "StartToken"
 SESSION_NUMBER = 100
+FILTER_TAG_KEY = "server_type" # Instance tag 'server_type' is required
+FILTER_TAG_ACCEPTABLE_VALUES = ['web','app','db'] # acceptable values are 'web', 'app' and 'db'
 
 @dataclass
 class Instance:
     network_interface_id: str
     subnet_id: str
     vpc_id: str
+    az_id: str # customized to capture AZ ID as we are assigning traffic mirror source and target in the same AZ based on AZ ID.
     tags: list
 
 def load_config():
@@ -52,23 +62,6 @@ def valid_source_type(source_type, source_identifier, config):
 def valid_target_config(source, target_config):
     if field_missing(source, target_config):
         log.error('Missing ' + source)
-        return False
-
-    if field_missing('filterId', target_config):
-        log.error('Missing filterId')
-        return False
-
-    if not field_missing('targetId', target_config):
-        return True
-
-    if field_missing('targetInstanceType', target_config):
-        log.error('Missing targetInstanceType and targetId not specified')
-        return False
-    if field_missing('targetInstanceAmi', target_config):
-        log.error('Missing targetInstanceAmi and targetId not specified')
-        return False
-    if not valid_list_field('targetSecurityGroupIds', target_config):
-        log.error('Invalid targetSecurityGroupIds and targetId not specified')
         return False
 
     return True
@@ -119,14 +112,17 @@ def publish_message(sns_client, sns_topic_arn, next_token):
     sns_client.publish(TopicArn=sns_topic_arn,
                        Message="Backfill existing instances", MessageAttributes=message_attribute)
 
-def create_instance_object(instance_details):
+def create_instance_object(instance_details, subnet_details):
     subnet_id = instance_details["SubnetId"]
     vpc_id = instance_details["VpcId"]
     # Extracting only primary interface
     network_interface_id = instance_details["NetworkInterfaces"][0]["NetworkInterfaceId"]
     tags = parse_instance_tags(instance_details)
+    
+    # customized to capture AZ ID as we are assigning traffic mirror source and target in the same AZ based on AZ ID.
+    az_id = subnet_details['Subnets'][0]['AvailabilityZoneId']
 
-    return Instance(network_interface_id, subnet_id, vpc_id, tags)
+    return Instance(network_interface_id, subnet_id, vpc_id, az_id, tags)
 
 # Extract instance tags if available
 def parse_instance_tags(instance_details):
@@ -182,28 +178,24 @@ def find_matching_tags(instance_tags, config_tags):
 
 # Creates a Traffic Mirroring Session
 def create_session(ec2, instance, config):
-    target_id = get_or_create_target(ec2, instance, config)
-    filter_id = config["filterId"]
+    target_id = get_target(instance, config)
+    filter_id = get_filter(instance, config)
     network_interface_id = instance.network_interface_id
-    log.info("Creating a session with source: %s, target: %s, filter: %s", 
-            network_interface_id, target_id, filter_id)
-
-    try:
-        response = create_traffic_mirror_session(ec2, network_interface_id, target_id, filter_id)
-        log.info("Successfully created a traffic mirror session: %s", response)
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'TrafficMirrorSourcesPerTargetLimitExceeded':
-            log.info("Target %s has reached its limit.", target_id)
-            # If a target was not supplied in the config one is created dynamically
-            if not using_predefined_target(config):
-                target_subnet_id = get_target_subnet_id(instance, config)
-                log.info("Creating a new target in %s", target_subnet_id)
-                create_target(ec2, target_subnet_id, config, target_id)
-                create_session(ec2, instance, config)
+    if target_id is None or filter_id is None:
+        log.error("Traffic mirroring session could not be created.")
+    else:
+        log.info("Creating a session with source: %s, target: %s, filter: %s", 
+                network_interface_id, target_id, filter_id)
+    
+        try:
+            response = create_traffic_mirror_session(ec2, network_interface_id, target_id, filter_id)
+            log.info("Successfully created a traffic mirror session: %s", response)
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'TrafficMirrorSourcesPerTargetLimitExceeded':
+                log.info("Target %s has reached its limit.", target_id)
+                raise e
             else:
                 raise e
-        else:
-            raise e
 
 def create_traffic_mirror_session(ec2, network_interface_id, target_id, filter_id):
     return ec2.create_traffic_mirror_session(NetworkInterfaceId=network_interface_id,
@@ -211,82 +203,45 @@ def create_traffic_mirror_session(ec2, network_interface_id, target_id, filter_i
                                              TrafficMirrorFilterId=filter_id,
                                              SessionNumber=SESSION_NUMBER)
 
-# Gets or creates a valid target to use in a session. If a targetId was specified in the config
-# it will be used. If not, an existing target will be looked up using tags. If no target is found, one will be created
-def get_or_create_target(ec2, instance, config):
-    if using_predefined_target(config):
-        targetId = config['targetId']
+# Gets a valid target to use in a session. 
+def get_target(instance, config):
+    # customized to retrieve targetID from input config file based on AZ ID of the instance
+    azid = instance.az_id
+    aznum = azid[-3:]    
+    target_name ='targetID-' + aznum
+
+    if field_missing(target_name, config):
+        log.error("TargetID %s is missing. Please add it in config yaml file.",target_name)
+        return None
+    else:
+        targetId = config[target_name]
         log.info('Using provided target: %s', targetId)
         return targetId
 
-    log.info('No target provided in config, determining if one needs to be created')
-    target_subnet_id = get_target_subnet_id(instance, config)
-    target_tag_filter = create_response_filter(
-        "tag:" + SUBNET_TAG_KEY, target_subnet_id)
-    response = describe_targets(ec2, target_tag_filter)
+def get_filter(instance, config):
+    for tag in instance.tags:
+        if tag['Key'] == FILTER_TAG_KEY:
+            if tag['Value'] in FILTER_TAG_ACCEPTABLE_VALUES:
+                filter_name = 'filterID-' + tag['Value']
+                if field_missing(filter_name, config):
+                    log.error("FilterID %s is missing. Please add it in config yaml file.",filter_name)
+                    return None
+                else:
+                    filterId = config[filter_name]
+                    log.info('Using provided filter: %s', filterId)
+                    return filterId
+            else:
+                log.error("Value for instance tag %s is invalid. Acceptable values are %s",FILTER_TAG_KEY,FILTER_TAG_ACCEPTABLE_VALUES)
+                return None
 
-    if response["TrafficMirrorTargets"]:
-        return response["TrafficMirrorTargets"][0]["TrafficMirrorTargetId"]
-    else:
-        log.info('No available target found. Creating one')
-        return create_target(ec2, target_subnet_id, config)
+    log.error("Tag %s is missing. Please add instance tag %s.",FILTER_TAG_KEY,FILTER_TAG_KEY)
+    return None
 
 def get_target_subnet_id(instance, config):
     return config["targetSubnetId"] if not field_missing('targetSubnetId', config) else instance.subnet_id
 
-# Creates a traffic mirror target with the desired configuration and tags it
-# The tag is used to find an available target for a subnet. If a target reaches its source per target limit,
-# a new target is created and the tags on the previous target is removed.
-def create_target(ec2, target_subnet_id, config, existing_target_id = None):
-    target_instance = launch_target_instance(ec2, target_subnet_id, config)
-    network_interface_id = target_instance["Instances"][0]["NetworkInterfaces"][0]["NetworkInterfaceId"]
-
-    try:
-        target_id = create_target_with_tag(ec2, network_interface_id, target_subnet_id)
-        remove_subnet_tag(ec2, target_subnet_id, existing_target_id)
-        log.info("TrafficMirrorTarget %s created", target_id)
-        return target_id
-    except Exception as e:
-        target_instance_id = target_instance["Instances"][0]["InstanceId"]
-        log.info("Failed to create target. Terminating the launched target instance %s", target_instance_id)
-        ec2.terminate_instances(InstanceIds=[target_instance_id])
-        raise e
-
-def launch_target_instance(ec2, target_subnet_id, config):
-    log.info("Launching a new EC2 instance for target")
-    return ec2.run_instances(ImageId=config["targetInstanceAmi"],
-                            SubnetId=target_subnet_id,
-                            InstanceType=config["targetInstanceType"],
-                            SecurityGroupIds=config["targetSecurityGroupIds"],
-                            MinCount=1, MaxCount=1)
-
-def create_target_with_tag(ec2, network_interface_id, target_subnet_id):
-    tag_specifications = {
-        "ResourceType": "traffic-mirror-target",
-        "Tags": [
-            create_tag(SUBNET_TAG_KEY, target_subnet_id),
-            create_tag("Name", "TrafficMirroringSourceAutomation")
-        ]
-    }
-    log.info("Creating a traffic mirror target with networkInterfaceId: %s", network_interface_id)
-    response = ec2.create_traffic_mirror_target(NetworkInterfaceId=network_interface_id, 
-                                                TagSpecifications=[tag_specifications])
-    return response["TrafficMirrorTarget"]["TrafficMirrorTargetId"]
-
 def describe_targets(ec2, filters):
     return ec2.describe_traffic_mirror_targets(Filters=[filters])
 
-def remove_subnet_tag(ec2, target_subnet_id, existing_target_id):
-    if existing_target_id:
-        log.info("Removing tag from %s", existing_target_id)
-        ec2.delete_tags(Resources=[existing_target_id], Tags=[create_tag(SUBNET_TAG_KEY, target_subnet_id)])
-
 def create_response_filter(name, value):
 	return {"Name": name, "Values": [value]}
-	  
-def create_tag(key, value):
-    return { "Key": key, "Value": value }
-
-# Returns true if the target_config has defined the target to use
-def using_predefined_target(target_config):
-	return not field_missing('targetId', target_config)
