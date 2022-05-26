@@ -60,10 +60,12 @@ def parse_sns_message(event):
         return []
 
     instance_list = []
-    for instance in response["Reservations"]:
-        instance_details = instance["Instances"][0]
-        instance = create_instance_object(instance_details)
-        instance_list.append(instance)
+    for reservations in response["Reservations"]:
+        #loop instance in reservations (for multi instance reservation)
+        for instance_details in reservations["Instances"]:
+            instance = create_instance_object(instance_details)
+            if instance is not None:
+                instance_list.append(instance)
 
     update_sns_config(event, response)
 
